@@ -1,0 +1,269 @@
+import pickle
+import cv2
+import numpy as np
+import tensorflow as tf
+import streamlit as st
+import google.generativeai as genai
+import mediapipe as mp
+import pyttsx3
+import threading
+import time
+import os
+
+# Load the trained sign language model
+model = tf.keras.models.load_model("signlang_lstm_model.h5")
+
+# Load the label encoder
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize Google Gemini API
+genai.configure(api_key="AIzaSyAWA_mDwe1zWcmVOmAUuhQ5jlRNnPrPNTc")
+
+def speak_text(text):
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
+
+def text_to_speech(text):
+    threading.Thread(target=speak_text, args=(text,), daemon=True).start()
+
+def get_response(input_text):
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    response = gemini_model.generate_content(input_text)
+    return response.text
+
+# UI Design with Two Columns
+st.set_page_config(layout="wide")
+
+st.title("🤖 Signbot")
+st.markdown("### Use sign language to communicate with AI")
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.markdown("## Webcam Feed")
+    stframe = st.empty()
+
+with col2:
+    st.markdown("## Chatbot Responses")
+    chat_area = st.empty()
+
+if st.button("Start Webcam"):
+    cap = cv2.VideoCapture(0)
+    
+    sentence = []  # Store words
+    last_word = None  # Track last recognized word
+    no_sign_counter = 0  # Track frames with no sign detected
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(frame_rgb)
+        
+        detected_word = None
+        
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                landmarks = np.array([[lm.x, lm.y] for lm in hand_landmarks.landmark]).flatten()
+
+                if landmarks.shape[0] == 42:
+                    landmarks = landmarks.reshape(1, 1, 42)
+                    prediction = model.predict(landmarks)
+                    predicted_label_index = np.argmax(prediction)
+                    detected_word = label_encoder.inverse_transform([predicted_label_index])[0]
+                    
+                    if detected_word != last_word and detected_word not in sentence:
+                        sentence.append(detected_word)
+                        last_word = detected_word
+                        chat_area.markdown(f"**✋ Recognized:** {detected_word}")
+
+                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        else:
+            no_sign_counter += 1
+            if no_sign_counter > 20:  # If no sign detected for 20 frames, process sentence
+                if sentence:
+                    final_sentence = " ".join(sentence)
+                    chat_area.markdown(f"**📝 Formed Sentence:** {final_sentence}")
+                    chatbot_response = get_response(final_sentence)
+                    chat_area.markdown(f"**💬 Chatbot:** {chatbot_response}")
+                    text_to_speech(chatbot_response)
+                    sentence = []
+                    last_word = None
+                no_sign_counter = 0
+        
+        stframe.image(frame, channels="BGR")
+    
+    cap.release()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import pickle
+import cv2
+import numpy as np
+import tensorflow as tf
+import streamlit as st
+import google.generativeai as genai
+import mediapipe as mp
+import pyttsx3
+import threading
+import speech_recognition as sr
+
+# Load the trained sign language model
+model = tf.keras.models.load_model("signlang_lstm_model.h5")
+
+# Load the label encoder
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize Google Gemini API
+genai.configure(api_key="AIzaSyD5MLLlPOpdEsxjP0NsYZ5MJ1XisPjJ5E0")
+
+def speak_text(text):
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
+
+def text_to_speech(text):
+    threading.Thread(target=speak_text, args=(text,), daemon=True).start()
+
+def get_response(input_text):
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    response = gemini_model.generate_content(input_text)
+    return response.text
+
+def recognize_speech():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.write("🎤 Listening... Speak now.")
+        recognizer.adjust_for_ambient_noise(source)
+        try:
+            audio = recognizer.listen(source, timeout=5)
+            text = recognizer.recognize_google(audio)
+            st.write(f"🗣 Recognized Speech: {text}")
+            return text
+        except sr.UnknownValueError:
+            st.write("Sorry, could not understand your speech.")
+        except sr.RequestError:
+            st.write("Could not request results, check your internet.")
+    return None
+
+# UI Layout
+st.set_page_config(layout="wide")
+st.title("🤖 Signbot")
+st.markdown("### Choose your input method:")
+
+option = st.radio("", ["Text Input", "Voice Input", "Sign Language"], index=None)
+
+if option == "Text Input":
+    user_input = st.text_input("Type your message:")
+    if st.button("Send"):
+        if user_input:
+            chatbot_response = get_response(user_input)
+            st.markdown(f"**💬 Chatbot:** {chatbot_response}")
+            text_to_speech(chatbot_response)
+
+elif option == "Voice Input":
+    if st.button("Start Listening"):
+        speech_text = recognize_speech()
+        if speech_text:
+            chatbot_response = get_response(speech_text)
+            st.markdown(f"**💬 Chatbot:** {chatbot_response}")
+            text_to_speech(chatbot_response)
+
+elif option == "Sign Language":
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        st.markdown("## Webcam Feed")
+        stframe = st.empty()
+
+    with col2:
+        st.markdown("## Chatbot Responses")
+        chat_area = st.empty()
+
+    if st.button("Start Webcam"):
+        cap = cv2.VideoCapture(0)
+        
+        sentence = []
+        last_word = None
+        no_sign_counter = 0 
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = hands.process(frame_rgb)
+            
+            detected_word = None
+            
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    landmarks = np.array([[lm.x, lm.y] for lm in hand_landmarks.landmark]).flatten()
+
+                    if landmarks.shape[0] == 42:
+                        landmarks = landmarks.reshape(1, 1, 42)
+                        prediction = model.predict(landmarks)
+                        predicted_label_index = np.argmax(prediction)
+                        detected_word = label_encoder.inverse_transform([predicted_label_index])[0]
+                        
+                        if detected_word != last_word and detected_word not in sentence:
+                            sentence.append(detected_word)
+                            last_word = detected_word
+                            chat_area.markdown(f"**✋ Recognized:** {detected_word}")
+
+                    mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            else:
+                no_sign_counter += 1
+                if no_sign_counter > 20:
+                    if sentence:
+                        final_sentence = " ".join(sentence)
+                        chat_area.markdown(f"**📝 Formed Sentence:** {final_sentence}")
+                        chatbot_response = get_response(final_sentence)
+                        chat_area.markdown(f"**💬 Chatbot:** {chatbot_response}")
+                        text_to_speech(chatbot_response)
+                        sentence = []
+                        last_word = None
+                    no_sign_counter = 0
+            
+            stframe.image(frame, channels="BGR")
+        
+        cap.release()
